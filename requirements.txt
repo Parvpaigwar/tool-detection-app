@@ -8,3 +8,5 @@ scikit-learn
 tensorflow
 torch
 torchvision
+ultralytics==8.3.67
+ultralytics-thop==2.0.14
