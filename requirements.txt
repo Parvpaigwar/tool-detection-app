@@ -10,3 +10,5 @@ torch
 torchvision
 ultralytics==8.3.67
 ultralytics-thop==2.0.14
+opencv-python-headless
+
