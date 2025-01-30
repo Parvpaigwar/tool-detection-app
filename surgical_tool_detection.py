@@ -1,46 +1,44 @@
 import os
-import time
 import cv2
 import numpy as np
 import streamlit as st
 from ultralytics import YOLO
 from PIL import Image
 
-
+# Load Model
 @st.cache_resource
 def load_model(model_path):
     model = YOLO(model_path, task='detect')
     return model
 
-
+# Streamlit UI
 st.title("Surgical Tools Detection")
 st.sidebar.header("Settings")
 
-
 model_path = "./my_model.pt"
-
 image_file = st.sidebar.file_uploader("Upload Image", type=["jpg", "jpeg", "png", "bmp"])
 video_file = st.sidebar.file_uploader("Upload Video", type=["avi", "mp4", "mov", "mkv"])
 use_webcam = st.sidebar.checkbox("Use Webcam")
-
 reference_size = st.sidebar.number_input("Reference Object Size (in cm)", min_value=1.0, value=5.0)
 
 if model_path:
     model = load_model(model_path)
     labels = model.names
-
     min_thresh = st.sidebar.slider("Confidence Threshold", 0.0, 1.0, 0.5)
     resolution = st.sidebar.text_input("Resolution (WxH)", "640x480")
 
-if use_webcam:
-    cap = cv2.VideoCapture(0)
-else:
-    if image_file is not None:
-        image = Image.open(image_file)
-        frame = np.array(image)
-    elif video_file is not None:
-        cap = cv2.VideoCapture(video_file)
+# Initialize Webcam or Video
+cap = None  # Default to None
 
+if use_webcam:
+    cap = cv2.VideoCapture(0)  # Open webcam
+elif video_file is not None:
+    temp_video_path = f"./temp_video.{video_file.name.split('.')[-1]}"  # Create temp file
+    with open(temp_video_path, "wb") as f:
+        f.write(video_file.read())  # Save uploaded video
+    cap = cv2.VideoCapture(temp_video_path)  # Load video
+
+# Function to Run Inference
 def run_inference(frame, reference_size):
     results = model(frame, verbose=False)
     detections = results[0].boxes
@@ -64,13 +62,11 @@ def run_inference(frame, reference_size):
 
             width_pixels = xmax - xmin
             height_pixels = ymax - ymin
-
             object_width_cm = width_pixels / pixel_per_cm
             object_height_cm = height_pixels / pixel_per_cm
-
             measurement_text = f"W: {object_width_cm:.2f} cm, H: {object_height_cm:.2f} cm"
-            cv2.putText(frame, measurement_text, (xmin, ymax + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
 
+            cv2.putText(frame, measurement_text, (xmin, ymax + 20), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
             labelSize, baseLine = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
             label_ymin = max(ymin, labelSize[1] + 10)
             cv2.rectangle(frame, (xmin, label_ymin - labelSize[1] - 10),
@@ -81,28 +77,39 @@ def run_inference(frame, reference_size):
     st.write(f"Detected {object_count} objects.")
     return frame
 
+# Image Processing
 if image_file:
+    image = Image.open(image_file)
+    frame = np.array(image)
     result_frame = run_inference(frame, reference_size)
     st.image(result_frame, channels="BGR", use_column_width=True)
+
+# Video Processing
 elif video_file:
+    frame_placeholder = st.empty()
+
     while cap.isOpened():
         ret, frame = cap.read()
         if not ret:
             break
         result_frame = run_inference(frame, reference_size)
-        st.image(result_frame, channels="BGR", use_column_width=True)
-        time.sleep(0.1)  
+        frame_placeholder.image(result_frame, channels="BGR", use_column_width=True)
+
+    cap.release()
+    os.remove(temp_video_path)  # Delete temp file after processing
+
+# Webcam Streaming
 elif use_webcam:
-    while True:
+    frame_placeholder = st.empty()  # Placeholder for dynamic updates
+
+    while use_webcam:
         ret, frame = cap.read()
         if not ret:
             st.write("Unable to fetch frame from webcam.")
             break
 
         result_frame = run_inference(frame, reference_size)
+        frame_placeholder.image(result_frame, channels="BGR", use_column_width=True)
 
-        st.image(result_frame, channels="BGR", use_column_width=True)
-        time.sleep(0.1)  
-
-if use_webcam:
+if cap:
     cap.release()
